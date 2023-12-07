@@ -1,17 +1,17 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 extern crate core;
 
 use alloc::vec::Vec;
+
 use core::fmt::Debug;
 use parity_scale_codec::{Decode, Encode, FullCodec, MaxEncodedLen};
 use scale_info::*;
-use schnorrkel::{signing_context, ExpansionMode, MiniSecretKey, PublicKey};
 
-//mod ring_vrf_impl;
 pub mod demo_impls;
 pub mod js_bindings;
+pub mod ring_vrf_impl;
 
 // Fixed types:
 
@@ -71,12 +71,17 @@ pub trait GenerateVerifiable {
 	/// with respect to the corresponding `Member`.
 	type Signature: Clone + Eq + PartialEq + FullCodec + Debug + TypeInfo;
 
-	type StaticChunk: Clone + Eq + PartialEq + FullCodec + Debug + TypeInfo;
+	type StaticChunk: Clone + Eq + PartialEq + FullCodec + Debug + TypeInfo + MaxEncodedLen;
 
 	/// Begin building a `Members` value.
 	fn start_members() -> Self::Intermediate;
+
 	/// Introduce a new `Member` into the intermediate value used to build a new `Members` value.
-	fn push_member(intermediate: &mut Self::Intermediate, who: Self::Member, lookup: impl Fn(usize) -> Result<Self::StaticChunk, ()>) -> Result<(), ()>;
+	fn push_member(
+		intermediate: &mut Self::Intermediate,
+		who: Self::Member,
+		lookup: impl Fn(usize) -> Result<Self::StaticChunk, ()>,
+	) -> Result<(), ()>;
 	// push_members
 	/// Consume the `intermediate` value to create a new `Members` value.
 	fn finish_members(inter: Self::Intermediate) -> Self::Members;
@@ -122,10 +127,7 @@ pub trait GenerateVerifiable {
 	) -> Result<(Self::Proof, Alias), ()>;
 
 	/// Make a non-anonymous signature of `message` using `secret`.
-	fn sign(
-		_secret: &Self::Secret,
-		_message: &[u8],
-	) -> Result<Self::Signature, ()> {
+	fn sign(_secret: &Self::Secret, _message: &[u8]) -> Result<Self::Signature, ()> {
 		Err(())
 	}
 
