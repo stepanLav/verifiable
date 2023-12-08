@@ -46,7 +46,17 @@ pub fn new_secret(entropy_input: Uint8Array) -> Uint8Array {
 
 #[wasm_bindgen]
 pub fn member_from_entropy(entropy: Uint8Array) -> Uint8Array {
-    todo!()
+    let entropy_vec = entropy.to_vec();
+    let entropy = Entropy::decode(&mut &entropy_vec[..]).unwrap();
+
+    // Secret
+	let secret = BandersnatchVrfVerifiable::new_secret(entropy);
+
+    // Member
+	let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
+    let member_encoded = Encode::encode(&member);
+
+    Uint8Array::from(&member_encoded[..])
 }
 
 #[wasm_bindgen]
