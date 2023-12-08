@@ -11,6 +11,7 @@ use scale_info::*;
 
 pub mod demo_impls;
 pub mod js_bindings;
+pub mod js_bindings_trivial;
 pub mod ring_vrf_impl;
 
 // Fixed types:
