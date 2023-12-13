@@ -1,9 +1,16 @@
+use ark_scale::ArkScale;
+use ark_serialize::CanonicalDeserialize;
+use bandersnatch_vrfs::ring::StaticVerifierKey;
 use bounded_collections::{BoundedVec, ConstU32};
 use parity_scale_codec::{Decode, Encode};
 use wasm_bindgen::prelude::*;
 use crate::ring_vrf_impl::BandersnatchVrfVerifiable;
 use crate::{GenerateVerifiable, Entropy};
 use js_sys::{Object, Uint8Array};
+#[cfg(feature = "small-ring")]
+const ONCHAIN_VK: &[u8] = include_bytes!("ring-data/zcash-9.vk");
+#[cfg(not(feature = "small-ring"))]
+const ONCHAIN_VK: &[u8] = include_bytes!("ring-data/zcash-16.vk");
 
 #[wasm_bindgen]
 pub fn one_shot(entropy: Uint8Array, members: Uint8Array) -> Object {
@@ -21,7 +28,8 @@ pub fn one_shot(entropy: Uint8Array, members: Uint8Array) -> Object {
     // All Members
 	let raw_members = members.to_vec();
     let mut members:BoundedVec<<BandersnatchVrfVerifiable as GenerateVerifiable>::Member, ConstU32<{u32::MAX}>> = Decode::decode(&mut &raw_members[..]).unwrap();
-    // Add Self to Members
+
+    //TODO Add Self to Members, decide if we want to add here or before.
     members.try_push(member.clone()).unwrap();
     let members_encoded = Encode::encode(&members);
 
@@ -29,15 +37,11 @@ pub fn one_shot(entropy: Uint8Array, members: Uint8Array) -> Object {
 	let commitment = BandersnatchVrfVerifiable::open(&member, members.into_iter()).expect("Error during open");
 
 	// Create
-
     let context = &[23u8];
     let message = &[42u8];
 	let (proof,alias) = BandersnatchVrfVerifiable::create(commitment, &secret, context, message).expect("Error during open");
 
-
-
     // Return Results
-
 	let obj = Object::new();
 	js_sys::Reflect::set(&obj, &"member".into(), &Uint8Array::from(&member_encoded[..])).unwrap();
     js_sys::Reflect::set(&obj, &"members".into(), &Uint8Array::from(&members_encoded[..])).unwrap();
@@ -47,19 +51,31 @@ pub fn one_shot(entropy: Uint8Array, members: Uint8Array) -> Object {
 }
 
 #[wasm_bindgen]
-pub fn validate(proof: Uint8Array, members: Uint8Array, context: Uint8Array, message: Uint8Array) {
-    // TODO NEXT
-    let context = &[23u8];
-    let message = &[42u8];
+pub fn validate(proof: Uint8Array, members: Uint8Array, context: Uint8Array, message: Uint8Array)-> Uint8Array {
+    // TODO decode context & message
 
     let proof = proof.to_vec();
     let proof: <BandersnatchVrfVerifiable as GenerateVerifiable>::Proof = Decode::decode(&mut &proof[..]).unwrap();
 
     let members = members.to_vec();
-    let mut members:BoundedVec<<BandersnatchVrfVerifiable as GenerateVerifiable>::Member, ConstU32<{u32::MAX}>> = Decode::decode(&mut &members[..]).unwrap();
+    let members:BoundedVec<<BandersnatchVrfVerifiable as GenerateVerifiable>::Member, ConstU32<{u32::MAX}>> = Decode::decode(&mut &members[..]).unwrap();
 
-    // BandersnatchVrfVerifiable::validate(&proof, members.into_iter(), context, message);
-    todo!()
+    // TODO ok as validation is only happening on chain right? Otherwise expose vk?
+    let vk = StaticVerifierKey::deserialize_uncompressed_unchecked(ONCHAIN_VK).unwrap();
+    let get_one = |i| Ok(ArkScale(vk.lag_g1[i]));
+
+    let mut inter = BandersnatchVrfVerifiable::start_members();
+    members.iter().for_each(|member| {
+        BandersnatchVrfVerifiable::push_member(&mut inter, member.clone(), get_one).unwrap();
+    });
+    let members_commitment = BandersnatchVrfVerifiable::finish_members(inter);
+
+    let context = &[23u8];
+    let message = &[42u8];
+    let alias =
+			BandersnatchVrfVerifiable::validate(&proof, &members_commitment, context, message).unwrap();
+
+    Uint8Array::from(&Encode::encode(&alias)[..])
 }
 
 
