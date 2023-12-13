@@ -7,6 +7,7 @@ use js_sys::{Object, Uint8Array};
 
 #[wasm_bindgen]
 pub fn one_shot(entropy: Uint8Array, members: Uint8Array) -> Object {
+    // store entropy instead of key is fine
     let entropy_vec = entropy.to_vec();
     let entropy = Entropy::decode(&mut &entropy_vec[..]).unwrap();
 
@@ -28,9 +29,15 @@ pub fn one_shot(entropy: Uint8Array, members: Uint8Array) -> Object {
 	let commitment = BandersnatchVrfVerifiable::open(&member, members.into_iter()).expect("Error during open");
 
 	// Create
-	let (proof,alias) = BandersnatchVrfVerifiable::create(commitment, &secret, &[23u8], &[42u8]).expect("Error during open");
+
+    let context = &[23u8];
+    let message = &[42u8];
+	let (proof,alias) = BandersnatchVrfVerifiable::create(commitment, &secret, context, message).expect("Error during open");
+
+
 
     // Return Results
+
 	let obj = Object::new();
 	js_sys::Reflect::set(&obj, &"member".into(), &Uint8Array::from(&member_encoded[..])).unwrap();
     js_sys::Reflect::set(&obj, &"members".into(), &Uint8Array::from(&members_encoded[..])).unwrap();
@@ -38,6 +45,23 @@ pub fn one_shot(entropy: Uint8Array, members: Uint8Array) -> Object {
     js_sys::Reflect::set(&obj, &"alias".into(), &Uint8Array::from(&alias[..])).unwrap();
 	obj
 }
+
+#[wasm_bindgen]
+pub fn validate(proof: Uint8Array, members: Uint8Array, context: Uint8Array, message: Uint8Array) {
+    // TODO NEXT
+    let context = &[23u8];
+    let message = &[42u8];
+
+    let proof = proof.to_vec();
+    let proof: <BandersnatchVrfVerifiable as GenerateVerifiable>::Proof = Decode::decode(&mut &proof[..]).unwrap();
+
+    let members = members.to_vec();
+    let mut members:BoundedVec<<BandersnatchVrfVerifiable as GenerateVerifiable>::Member, ConstU32<{u32::MAX}>> = Decode::decode(&mut &members[..]).unwrap();
+
+    // BandersnatchVrfVerifiable::validate(&proof, members.into_iter(), context, message);
+    todo!()
+}
+
 
 #[wasm_bindgen]
 pub fn new_secret(entropy_input: Uint8Array) -> Uint8Array {
@@ -79,7 +103,3 @@ pub fn create(
     todo!()
 }
 
-#[wasm_bindgen]
-pub fn validate(proof: Uint8Array, members: Uint8Array, context: Uint8Array, message: Uint8Array) {
-    todo!()
-}
