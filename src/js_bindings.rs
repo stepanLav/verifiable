@@ -13,7 +13,7 @@ const ONCHAIN_VK: &[u8] = include_bytes!("ring-data/zcash-9.vk");
 const ONCHAIN_VK: &[u8] = include_bytes!("ring-data/zcash-16.vk");
 
 #[wasm_bindgen]
-pub fn one_shot(entropy: Uint8Array, members: Uint8Array) -> Object {
+pub fn one_shot(entropy: Uint8Array, members: Uint8Array, context:Uint8Array, message:Uint8Array) -> Object {
     // store entropy instead of key is fine
     let entropy_vec = entropy.to_vec();
     let entropy = Entropy::decode(&mut &entropy_vec[..]).unwrap();
@@ -37,8 +37,8 @@ pub fn one_shot(entropy: Uint8Array, members: Uint8Array) -> Object {
 	let commitment = BandersnatchVrfVerifiable::open(&member, members.into_iter()).expect("Error during open");
 
 	// Create
-    let context = &[23u8];
-    let message = &[42u8];
+    let context = &context.to_vec()[..];
+    let message = &message.to_vec()[..];
 	let (proof,alias) = BandersnatchVrfVerifiable::create(commitment, &secret, context, message).expect("Error during open");
 
     // Return Results
@@ -47,13 +47,13 @@ pub fn one_shot(entropy: Uint8Array, members: Uint8Array) -> Object {
     js_sys::Reflect::set(&obj, &"members".into(), &Uint8Array::from(&members_encoded[..])).unwrap();
     js_sys::Reflect::set(&obj, &"proof".into(), &Uint8Array::from(&proof[..])).unwrap();
     js_sys::Reflect::set(&obj, &"alias".into(), &Uint8Array::from(&alias[..])).unwrap();
+    js_sys::Reflect::set(&obj, &"message".into(), &Uint8Array::from(&message[..])).unwrap();
+    js_sys::Reflect::set(&obj, &"context".into(), &Uint8Array::from(&context[..])).unwrap();
 	obj
 }
 
 #[wasm_bindgen]
 pub fn validate(proof: Uint8Array, members: Uint8Array, context: Uint8Array, message: Uint8Array)-> Uint8Array {
-    // TODO decode context & message
-
     let proof = proof.to_vec();
     let proof: <BandersnatchVrfVerifiable as GenerateVerifiable>::Proof = Decode::decode(&mut &proof[..]).unwrap();
 
@@ -70,8 +70,8 @@ pub fn validate(proof: Uint8Array, members: Uint8Array, context: Uint8Array, mes
     });
     let members_commitment = BandersnatchVrfVerifiable::finish_members(inter);
 
-    let context = &[23u8];
-    let message = &[42u8];
+    let context = &context.to_vec()[..];
+    let message = &message.to_vec()[..];
     let alias =
 			BandersnatchVrfVerifiable::validate(&proof, &members_commitment, context, message).unwrap();
 
