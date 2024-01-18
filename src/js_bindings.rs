@@ -7,6 +7,7 @@ use bounded_collections::{BoundedVec, ConstU32};
 use js_sys::{Object, Uint8Array};
 use parity_scale_codec::{Decode, Encode};
 use wasm_bindgen::prelude::*;
+
 #[cfg(feature = "small-ring")]
 const ONCHAIN_VK: &[u8] = include_bytes!("ring-data/zcash-9.vk");
 #[cfg(not(feature = "small-ring"))]
@@ -35,7 +36,7 @@ pub fn one_shot(
 	let members: BoundedVec<
 		<BandersnatchVrfVerifiable as GenerateVerifiable>::Member,
 		ConstU32<{ u32::MAX }>,
-	> = Decode::decode(&mut &raw_members[..]).unwrap();
+	> = Decode::decode(&mut &raw_members[..]).expect("Decoding works");
 
 	let members_encoded = Encode::encode(&members);
 
@@ -102,8 +103,8 @@ pub fn validate(
 
 	let context = &context.to_vec()[..];
 	let message = &message.to_vec()[..];
-	let alias =
-		BandersnatchVrfVerifiable::validate(&proof, &members_commitment, context, message).unwrap();
+	let alias = BandersnatchVrfVerifiable::validate(&proof, &members_commitment, context, message)
+		.expect("Proof not able to be validated");
 
 	Uint8Array::from(&Encode::encode(&alias)[..])
 }
@@ -148,8 +149,62 @@ pub fn create(
 }
 
 use wasm_bindgen_test::*;
+
 #[wasm_bindgen_test]
-fn equal_members() {
+fn create_proof_validate_proof() {
+	let entropy = [5u8; 32];
+	let js_member = member_from_entropy(Uint8Array::from(entropy.as_slice()));
+
+	let get_secret_and_member = |entropy: &[u8; 32]| {
+		let secret = BandersnatchVrfVerifiable::new_secret(entropy.clone());
+		let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
+		(secret, member)
+	};
+
+	let members: Vec<_> = (0..10)
+		.map(|i| get_secret_and_member(&[i as u8; 32]))
+		.map(|(_, m)| m)
+		.collect();
+
+	// let members: Vec<Uint8Array> = (0..10)
+	// 	.map(|i| member_from_entropy(Uint8Array::from([i as u8; 32].as_slice())))
+	// 	.collect();
+
+	assert_eq!(
+		js_member.to_vec(),
+		members.get(5).unwrap().encode().to_vec()
+	);
+
+	let context = b"Context";
+	let message = b"FooBar";
+
+	let result = one_shot(
+		Uint8Array::from(entropy.as_slice()),
+		Uint8Array::from(members.encode().to_vec().as_slice()),
+		Uint8Array::from(context.as_slice()),
+		Uint8Array::from(message.as_slice()),
+	);
+
+	let alias =
+		js_sys::Reflect::get(&result, &JsValue::from_str("alias")).expect("alias should exist");
+	let alias = Uint8Array::new(&alias);
+
+	let proof =
+		js_sys::Reflect::get(&result, &JsValue::from_str("proof")).expect("proof should exist");
+	let proof = Uint8Array::new(&proof);
+
+	let validated_alias = validate(
+		proof,
+		Uint8Array::from(&members.encode().to_vec()[..]),
+		Uint8Array::from(context.as_slice()),
+		Uint8Array::from(message.as_slice()),
+	);
+
+	assert_eq!(alias.to_vec(), validated_alias.to_vec());
+}
+
+#[wasm_bindgen_test]
+fn js_rust_equal_member() {
 	let entropy = [0u8; 32];
 	let alice_secret = BandersnatchVrfVerifiable::new_secret(entropy);
 	let rust_member = BandersnatchVrfVerifiable::member_from_secret(&alice_secret);
@@ -163,7 +218,42 @@ fn equal_members() {
 }
 
 #[wasm_bindgen_test]
-fn equal_proofs() {
+fn js_rust_equal_members() {
+	let get_secret_and_member = |entropy: &[u8; 32]| {
+		let secret = BandersnatchVrfVerifiable::new_secret(entropy.clone());
+		let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
+		(secret, member)
+	};
+
+	let rust_members: Vec<_> = (0..10)
+		.map(|i| get_secret_and_member(&[i as u8; 32]))
+		.map(|(_, m)| m)
+		.collect();
+
+	let js_members: Vec<Vec<u8>> = (0..10)
+		.map(|i| member_from_entropy(Uint8Array::from([i as u8; 32].as_slice())))
+		.map(|key| key.to_vec())
+		.collect();
+
+	assert_eq!(js_members.len(), rust_members.len());
+
+	// let rust_members = rust_members.encode();
+	// TODO this not equal, why? We need to encoded the keys individual for it to be the same.
+	// assert_eq!(js_members.encode(), rust_members.encode());
+
+	let rust_members_with_encoded_keys = rust_members
+		.iter()
+		.map(|key| key.encode())
+		.collect::<Vec<Vec<u8>>>();
+
+	let rust_members_with_encoded_keys = rust_members_with_encoded_keys.encode();
+	let js_members = js_members.encode();
+
+	assert_eq!(js_members, rust_members_with_encoded_keys);
+}
+
+#[wasm_bindgen_test]
+fn js_rust_equal_proofs() {
 	let get_secret_and_member = |entropy: &[u8; 32]| {
 		let secret = BandersnatchVrfVerifiable::new_secret(entropy.clone());
 		let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
@@ -172,10 +262,15 @@ fn equal_proofs() {
 
 	let alice_entropy = [0u8; 32];
 	let bob_entropy = [1u8; 32];
+
+	let members: Vec<_> = (0..10)
+		.map(|i| get_secret_and_member(&[i as u8; 32]))
+		.map(|(_, m)| m)
+		.collect();
+
+	// TODO get alice, bob member from members by index
 	let (alice_secret, alice_member) = get_secret_and_member(&alice_entropy);
 	let (bob_secret, bob_member) = get_secret_and_member(&bob_entropy);
-
-	let members = vec![alice_member.clone(), bob_member.clone()];
 
 	let context = b"Context";
 	let message = b"FooBar";
