@@ -330,8 +330,4 @@ fn js_rust_equal_proofs() {
 		Uint8Array::from(message.as_slice()),
 	);
 	assert_eq!(rs_proof_alias.to_vec(), alias.to_vec());
-
-	// TODO do use rust validation methods directly.
-	// maybe assumption that proofs are the same is wrong!
-	// assert_eq!(js_proof.to_vec(), proof.to_vec());
 }
