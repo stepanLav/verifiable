@@ -1,5 +1,3 @@
-use core::mem;
-
 use crate::ring_vrf_impl::BandersnatchVrfVerifiable;
 use crate::{Entropy, GenerateVerifiable};
 use ark_scale::ArkScale;
@@ -43,8 +41,8 @@ pub fn one_shot(
 	let members_encoded = members.encode();
 
 	// Open
-	let commitment = BandersnatchVrfVerifiable::open(&member, members.clone().into_iter())
-		.expect("Error during open");
+	let commitment =
+		BandersnatchVrfVerifiable::open(&member, members.into_iter()).expect("Error during open");
 
 	// TODO I find this quite fishy!, Why use the commitment as the secret?
 	let secret = BandersnatchVrfVerifiable::new_secret([commitment.0 as u8; 32]);
@@ -116,6 +114,7 @@ pub fn new_secret(entropy_input: Uint8Array) -> Uint8Array {
 	todo!()
 }
 
+#[wasm_bindgen]
 pub fn member_from_entropy(entropy: Uint8Array) -> Uint8Array {
 	let entropy_vec = entropy.to_vec();
 	let entropy = Entropy::decode(&mut &entropy_vec[..]).unwrap();
@@ -150,184 +149,184 @@ pub fn create(
 	todo!()
 }
 
-use wasm_bindgen_test::*;
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use wasm_bindgen_test::*;
 
-#[wasm_bindgen_test]
-fn create_proof_validate_proof() {
-	let entropy = [5u8; 32];
-	let js_member = member_from_entropy(Uint8Array::from(entropy.as_slice()));
+	#[wasm_bindgen_test]
+	fn create_proof_validate_proof() {
+		let entropy = [5u8; 32];
+		let js_member = member_from_entropy(Uint8Array::from(entropy.as_slice()));
 
-	let get_secret_and_member = |entropy: &[u8; 32]| {
-		let secret = BandersnatchVrfVerifiable::new_secret(entropy.clone());
-		let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
-		(secret, member)
-	};
+		let get_secret_and_member = |entropy: &[u8; 32]| {
+			let secret = BandersnatchVrfVerifiable::new_secret(entropy.clone());
+			let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
+			(secret, member)
+		};
 
-	let members: Vec<_> = (0..10)
-		.map(|i| get_secret_and_member(&[i as u8; 32]))
-		.map(|(_, m)| m)
-		.collect();
+		let members: Vec<_> = (0..10)
+			.map(|i| get_secret_and_member(&[i as u8; 32]))
+			.map(|(_, m)| m)
+			.collect();
 
-	// let members: Vec<Uint8Array> = (0..10)
-	// 	.map(|i| member_from_entropy(Uint8Array::from([i as u8; 32].as_slice())))
-	// 	.collect();
+		assert_eq!(
+			js_member.to_vec(),
+			members.get(5).unwrap().encode().to_vec()
+		);
 
-	assert_eq!(
-		js_member.to_vec(),
-		members.get(5).unwrap().encode().to_vec()
-	);
+		let context = b"Context";
+		let message = b"FooBar";
 
-	let context = b"Context";
-	let message = b"FooBar";
+		let result = one_shot(
+			Uint8Array::from(entropy.as_slice()),
+			Uint8Array::from(members.encode().to_vec().as_slice()),
+			Uint8Array::from(context.as_slice()),
+			Uint8Array::from(message.as_slice()),
+		);
 
-	let result = one_shot(
-		Uint8Array::from(entropy.as_slice()),
-		Uint8Array::from(members.encode().to_vec().as_slice()),
-		Uint8Array::from(context.as_slice()),
-		Uint8Array::from(message.as_slice()),
-	);
+		let alias =
+			js_sys::Reflect::get(&result, &JsValue::from_str("alias")).expect("alias should exist");
+		let alias = Uint8Array::new(&alias);
 
-	let alias =
-		js_sys::Reflect::get(&result, &JsValue::from_str("alias")).expect("alias should exist");
-	let alias = Uint8Array::new(&alias);
+		let proof =
+			js_sys::Reflect::get(&result, &JsValue::from_str("proof")).expect("proof should exist");
+		let proof = Uint8Array::new(&proof);
 
-	let proof =
-		js_sys::Reflect::get(&result, &JsValue::from_str("proof")).expect("proof should exist");
-	let proof = Uint8Array::new(&proof);
+		let validated_alias = validate(
+			proof,
+			Uint8Array::from(&members.encode().to_vec()[..]),
+			Uint8Array::from(context.as_slice()),
+			Uint8Array::from(message.as_slice()),
+		);
 
-	let validated_alias = validate(
-		proof,
-		Uint8Array::from(&members.encode().to_vec()[..]),
-		Uint8Array::from(context.as_slice()),
-		Uint8Array::from(message.as_slice()),
-	);
+		assert_eq!(alias.to_vec(), validated_alias.to_vec());
+	}
 
-	assert_eq!(alias.to_vec(), validated_alias.to_vec());
-}
+	#[wasm_bindgen_test]
+	fn js_rust_equal_member() {
+		let entropy = [0u8; 32];
+		let alice_secret = BandersnatchVrfVerifiable::new_secret(entropy);
+		let rust_member = BandersnatchVrfVerifiable::member_from_secret(&alice_secret);
 
-#[wasm_bindgen_test]
-fn js_rust_equal_member() {
-	let entropy = [0u8; 32];
-	let alice_secret = BandersnatchVrfVerifiable::new_secret(entropy);
-	let rust_member = BandersnatchVrfVerifiable::member_from_secret(&alice_secret);
+		let js_member = member_from_entropy(Uint8Array::from(&entropy[..]));
 
-	let js_member = member_from_entropy(Uint8Array::from(&entropy[..]));
+		assert_eq!(rust_member.encode().len(), js_member.to_vec().len());
+		assert_eq!(rust_member.encode().len(), 33);
+		assert_eq!(js_member.to_vec().len(), 33);
+		assert_eq!(rust_member.encode(), js_member.to_vec());
+	}
 
-	assert_eq!(rust_member.encode().len(), js_member.to_vec().len());
-	assert_eq!(rust_member.encode().len(), 33);
-	assert_eq!(js_member.to_vec().len(), 33);
-	assert_eq!(rust_member.encode(), js_member.to_vec());
-}
+	#[wasm_bindgen_test]
+	fn js_rust_equal_members() {
+		let get_secret_and_member = |entropy: &[u8; 32]| {
+			let secret = BandersnatchVrfVerifiable::new_secret(entropy.clone());
+			let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
+			(secret, member)
+		};
 
-#[wasm_bindgen_test]
-fn js_rust_equal_members() {
-	let get_secret_and_member = |entropy: &[u8; 32]| {
-		let secret = BandersnatchVrfVerifiable::new_secret(entropy.clone());
-		let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
-		(secret, member)
-	};
+		let rust_members: Vec<_> = (0..10)
+			.map(|i| get_secret_and_member(&[i as u8; 32]))
+			.map(|(_, m)| m)
+			.collect();
 
-	let rust_members: Vec<_> = (0..10)
-		.map(|i| get_secret_and_member(&[i as u8; 32]))
-		.map(|(_, m)| m)
-		.collect();
+		let js_members: Vec<Vec<u8>> = (0..10)
+			.map(|i| member_from_entropy(Uint8Array::from([i as u8; 32].as_slice())))
+			.map(|key| key.to_vec())
+			.collect();
 
-	let js_members: Vec<Vec<u8>> = (0..10)
-		.map(|i| member_from_entropy(Uint8Array::from([i as u8; 32].as_slice())))
-		.map(|key| key.to_vec())
-		.collect();
+		assert_eq!(js_members.len(), rust_members.len());
 
-	assert_eq!(js_members.len(), rust_members.len());
+		// let rust_members = rust_members.encode();
+		// TODO this not equal, why? We need to encoded the keys individual for it to be the same.
+		// assert_eq!(js_members.encode(), rust_members.encode());
 
-	// let rust_members = rust_members.encode();
-	// TODO this not equal, why? We need to encoded the keys individual for it to be the same.
-	// assert_eq!(js_members.encode(), rust_members.encode());
+		let rust_members_with_encoded_keys = rust_members
+			.iter()
+			.map(|key| key.encode())
+			.collect::<Vec<Vec<u8>>>();
 
-	let rust_members_with_encoded_keys = rust_members
-		.iter()
-		.map(|key| key.encode())
-		.collect::<Vec<Vec<u8>>>();
+		let rust_members_with_encoded_keys = rust_members_with_encoded_keys.encode();
+		let js_members = js_members.encode();
 
-	let rust_members_with_encoded_keys = rust_members_with_encoded_keys.encode();
-	let js_members = js_members.encode();
+		assert_eq!(js_members, rust_members_with_encoded_keys);
+	}
 
-	assert_eq!(js_members, rust_members_with_encoded_keys);
-}
+	#[wasm_bindgen_test]
+	fn js_rust_equal_proofs() {
+		let get_secret_and_member = |entropy: &[u8; 32]| {
+			let secret = BandersnatchVrfVerifiable::new_secret(entropy.clone());
+			let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
+			(secret, member)
+		};
 
-#[wasm_bindgen_test]
-fn js_rust_equal_proofs() {
-	let get_secret_and_member = |entropy: &[u8; 32]| {
-		let secret = BandersnatchVrfVerifiable::new_secret(entropy.clone());
-		let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
-		(secret, member)
-	};
+		let alice_entropy = [0u8; 32];
 
-	let alice_entropy = [0u8; 32];
+		let members: Vec<_> = (0..10)
+			.map(|i| get_secret_and_member(&[i as u8; 32]))
+			.map(|(_, m)| m)
+			.collect();
 
-	let members: Vec<_> = (0..10)
-		.map(|i| get_secret_and_member(&[i as u8; 32]))
-		.map(|(_, m)| m)
-		.collect();
+		let alice_member = members.get(0).unwrap();
 
-	let alice_member = members.get(0).unwrap();
+		// Create Rust Proof
+		let context = b"Context";
+		let message = b"FooBar";
 
-	// Create Rust Proof
-	let context = b"Context";
-	let message = b"FooBar";
+		let commitment =
+			BandersnatchVrfVerifiable::open(&alice_member, members.clone().into_iter()).unwrap();
+		let secret = BandersnatchVrfVerifiable::new_secret([commitment.0 as u8; 32]);
+		let (proof, alias) =
+			BandersnatchVrfVerifiable::create(commitment, &secret, context, message).unwrap();
 
-	let commitment =
-		BandersnatchVrfVerifiable::open(&alice_member, members.clone().into_iter()).unwrap();
-	let secret = BandersnatchVrfVerifiable::new_secret([commitment.0 as u8; 32]);
-	let (proof, alias) =
-		BandersnatchVrfVerifiable::create(commitment, &secret, context, message).unwrap();
+		// Create JS Proof
+		let result = one_shot(
+			Uint8Array::from(&alice_entropy[..]),
+			Uint8Array::from(&members.encode().to_vec()[..]),
+			Uint8Array::from(&context[..]),
+			Uint8Array::from(&message[..]),
+		);
 
-	// Create JS Proof
-	let result = one_shot(
-		Uint8Array::from(&alice_entropy[..]),
-		Uint8Array::from(&members.encode().to_vec()[..]),
-		Uint8Array::from(&context[..]),
-		Uint8Array::from(&message[..]),
-	);
+		// Compare js & rust values
+		let get_u8a_value = |key: &str| {
+			let value =
+				js_sys::Reflect::get(&result, &JsValue::from_str(key)).expect("key should exist");
+			let value = Uint8Array::new(&value);
+			value
+		};
 
-	// Compare js & rust values
-	let get_u8a_value = |key: &str| {
-		let value =
-			js_sys::Reflect::get(&result, &JsValue::from_str(key)).expect("key should exist");
-		let value = Uint8Array::new(&value);
-		value
-	};
+		let js_alias = get_u8a_value("alias");
+		assert_eq!(js_alias.to_vec(), alias.to_vec());
 
-	let js_alias = get_u8a_value("alias");
-	assert_eq!(js_alias.to_vec(), alias.to_vec());
+		let js_member = get_u8a_value("member");
+		assert_eq!(js_member.to_vec(), alice_member.encode().to_vec());
 
-	let js_member = get_u8a_value("member");
-	assert_eq!(js_member.to_vec(), alice_member.encode().to_vec());
+		let js_members = get_u8a_value("members");
+		assert_eq!(js_members.to_vec(), members.encode().to_vec());
 
-	let js_members = get_u8a_value("members");
-	assert_eq!(js_members.to_vec(), members.encode().to_vec());
+		let js_context = get_u8a_value("context");
+		assert_eq!(js_context.to_vec(), context.to_vec());
 
-	let js_context = get_u8a_value("context");
-	assert_eq!(js_context.to_vec(), context.to_vec());
+		let js_message = get_u8a_value("message");
+		assert_eq!(js_message.to_vec(), message.to_vec());
 
-	let js_message = get_u8a_value("message");
-	assert_eq!(js_message.to_vec(), message.to_vec());
+		let js_proof = get_u8a_value("proof");
+		assert_eq!(js_proof.to_vec().len(), proof.len());
 
-	let js_proof = get_u8a_value("proof");
-	assert_eq!(js_proof.to_vec().len(), proof.len());
+		let js_proof_alias = validate(
+			js_proof,
+			Uint8Array::from(&members.encode().to_vec()[..]),
+			Uint8Array::from(context.as_slice()),
+			Uint8Array::from(message.as_slice()),
+		);
+		assert_eq!(js_proof_alias.to_vec(), alias.to_vec());
 
-	let js_proof_alias = validate(
-		js_proof,
-		Uint8Array::from(&members.encode().to_vec()[..]),
-		Uint8Array::from(context.as_slice()),
-		Uint8Array::from(message.as_slice()),
-	);
-	assert_eq!(js_proof_alias.to_vec(), alias.to_vec());
-
-	let rs_proof_alias = validate(
-		Uint8Array::from(&proof.encode().to_vec()[..]),
-		Uint8Array::from(&members.encode().to_vec()[..]),
-		Uint8Array::from(context.as_slice()),
-		Uint8Array::from(message.as_slice()),
-	);
-	assert_eq!(rs_proof_alias.to_vec(), alias.to_vec());
+		let rs_proof_alias = validate(
+			Uint8Array::from(&proof.encode().to_vec()[..]),
+			Uint8Array::from(&members.encode().to_vec()[..]),
+			Uint8Array::from(context.as_slice()),
+			Uint8Array::from(message.as_slice()),
+		);
+		assert_eq!(rs_proof_alias.to_vec(), alias.to_vec());
+	}
 }
