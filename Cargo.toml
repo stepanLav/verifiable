@@ -20,6 +20,7 @@ bandersnatch_vrfs = { git = "https://github.com/w3f/ring-vrf.git", branch = "rea
 getrandom = { version = "0.2.11", features = ["js"] }
 wasm-bindgen = "0.2.89"
 js-sys = "0.3.66"
+wasm-bindgen-test = "0.3.39"
 
 [dev-dependencies]
 rand_core = "0.6"
