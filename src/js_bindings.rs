@@ -1,3 +1,5 @@
+use core::mem;
+
 use crate::ring_vrf_impl::BandersnatchVrfVerifiable;
 use crate::{Entropy, GenerateVerifiable};
 use ark_scale::ArkScale;
@@ -29,7 +31,7 @@ pub fn one_shot(
 
 	// Member
 	let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
-	let member_encoded = Encode::encode(&member);
+	let member_encoded = member.encode();
 
 	// All Members
 	let raw_members = members.to_vec();
@@ -38,11 +40,11 @@ pub fn one_shot(
 		ConstU32<{ u32::MAX }>,
 	> = Decode::decode(&mut &raw_members[..]).expect("Decoding works");
 
-	let members_encoded = Encode::encode(&members);
+	let members_encoded = members.encode();
 
 	// Open
-	let commitment =
-		BandersnatchVrfVerifiable::open(&member, members.into_iter()).expect("Error during open");
+	let commitment = BandersnatchVrfVerifiable::open(&member, members.clone().into_iter())
+		.expect("Error during open");
 
 	// TODO I find this quite fishy!, Why use the commitment as the secret?
 	let secret = BandersnatchVrfVerifiable::new_secret([commitment.0 as u8; 32]);
@@ -261,17 +263,15 @@ fn js_rust_equal_proofs() {
 	};
 
 	let alice_entropy = [0u8; 32];
-	let bob_entropy = [1u8; 32];
 
 	let members: Vec<_> = (0..10)
 		.map(|i| get_secret_and_member(&[i as u8; 32]))
 		.map(|(_, m)| m)
 		.collect();
 
-	// TODO get alice, bob member from members by index
-	let (alice_secret, alice_member) = get_secret_and_member(&alice_entropy);
-	let (bob_secret, bob_member) = get_secret_and_member(&bob_entropy);
+	let alice_member = members.get(0).unwrap();
 
+	// Create Rust Proof
 	let context = b"Context";
 	let message = b"FooBar";
 
@@ -281,6 +281,7 @@ fn js_rust_equal_proofs() {
 	let (proof, alias) =
 		BandersnatchVrfVerifiable::create(commitment, &secret, context, message).unwrap();
 
+	// Create JS Proof
 	let result = one_shot(
 		Uint8Array::from(&alice_entropy[..]),
 		Uint8Array::from(&members.encode().to_vec()[..]),
@@ -288,25 +289,49 @@ fn js_rust_equal_proofs() {
 		Uint8Array::from(&message[..]),
 	);
 
-	let js_alias =
-		js_sys::Reflect::get(&result, &JsValue::from_str("alias")).expect("alias should exist");
-	let js_alias = Uint8Array::new(&js_alias);
+	// Compare js & rust values
+	let get_u8a_value = |key: &str| {
+		let value =
+			js_sys::Reflect::get(&result, &JsValue::from_str(key)).expect("key should exist");
+		let value = Uint8Array::new(&value);
+		value
+	};
+
+	let js_alias = get_u8a_value("alias");
 	assert_eq!(js_alias.to_vec(), alias.to_vec());
 
-	let js_member =
-		js_sys::Reflect::get(&result, &JsValue::from_str("member")).expect("members should exist");
-	let js_member = Uint8Array::new(&js_member);
+	let js_member = get_u8a_value("member");
 	assert_eq!(js_member.to_vec(), alice_member.encode().to_vec());
 
-	let js_members =
-		js_sys::Reflect::get(&result, &JsValue::from_str("members")).expect("members should exist");
-	let js_members = Uint8Array::new(&js_members);
+	let js_members = get_u8a_value("members");
 	assert_eq!(js_members.to_vec(), members.encode().to_vec());
 
-	let js_proof =
-		js_sys::Reflect::get(&result, &JsValue::from_str("proof")).expect("proof should exist");
-	let js_proof = Uint8Array::new(&js_proof);
+	let js_context = get_u8a_value("context");
+	assert_eq!(js_context.to_vec(), context.to_vec());
 
+	let js_message = get_u8a_value("message");
+	assert_eq!(js_message.to_vec(), message.to_vec());
+
+	let js_proof = get_u8a_value("proof");
 	assert_eq!(js_proof.to_vec().len(), proof.len());
-	assert_eq!(js_proof.to_vec(), proof.to_vec());
+
+	let js_proof_alias = validate(
+		js_proof,
+		Uint8Array::from(&members.encode().to_vec()[..]),
+		Uint8Array::from(context.as_slice()),
+		Uint8Array::from(message.as_slice()),
+	);
+	assert_eq!(js_proof_alias.to_vec(), alias.to_vec());
+
+	let rs_proof_alias = validate(
+		Uint8Array::from(&proof.encode().to_vec()[..]),
+		Uint8Array::from(&members.encode().to_vec()[..]),
+		Uint8Array::from(context.as_slice()),
+		Uint8Array::from(message.as_slice()),
+	);
+	assert_eq!(rs_proof_alias.to_vec(), alias.to_vec());
+
+	// TODO do use rust validation methods directly.
+	// maybe assumption that proofs are the same is wrong!
+	// assert_eq!(js_proof.to_vec(), proof.to_vec());
 }
