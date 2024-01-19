@@ -1,3 +1,5 @@
+use core::mem;
+
 use crate::ring_vrf_impl::BandersnatchVrfVerifiable;
 use crate::{Entropy, GenerateVerifiable};
 use ark_scale::ArkScale;
@@ -123,7 +125,7 @@ pub fn member_from_entropy(entropy: Uint8Array) -> Uint8Array {
 
 	// Member
 	let member = BandersnatchVrfVerifiable::member_from_secret(&secret);
-	let member_encoded = Encode::encode(&member);
+	let member_encoded = member.encode();
 
 	Uint8Array::from(&member_encoded[..])
 }
