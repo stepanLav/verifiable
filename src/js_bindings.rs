@@ -44,9 +44,6 @@ pub fn one_shot(
 	let commitment =
 		BandersnatchVrfVerifiable::open(&member, members.into_iter()).expect("Error during open");
 
-	// TODO I find this quite fishy!, Why use the commitment as the secret?
-	let secret = BandersnatchVrfVerifiable::new_secret([commitment.0 as u8; 32]);
-
 	// Create
 	let context = &context.to_vec()[..];
 	let message = &message.to_vec()[..];
