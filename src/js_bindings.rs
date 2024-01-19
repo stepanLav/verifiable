@@ -4,7 +4,7 @@ use ark_scale::ArkScale;
 use ark_serialize::CanonicalDeserialize;
 use bandersnatch_vrfs::ring::StaticVerifierKey;
 use bounded_collections::{BoundedVec, ConstU32};
-use js_sys::{Object, Uint8Array};
+use js_sys::{JsString, Object, Uint8Array};
 use parity_scale_codec::{Decode, Encode};
 use wasm_bindgen::prelude::*;
 
@@ -19,10 +19,11 @@ pub fn one_shot(
 	members: Uint8Array,
 	context: Uint8Array,
 	message: Uint8Array,
-) -> Object {
+) -> Result<Object, JsString> {
 	// store entropy instead of key is fine
 	let entropy_vec = entropy.to_vec();
-	let entropy = Entropy::decode(&mut &entropy_vec[..]).unwrap();
+	let entropy = Entropy::decode(&mut &entropy_vec[..])
+		.map_err(|_| JsString::from("Entropy decoding failed"))?;
 
 	// Secret
 	let secret = BandersnatchVrfVerifiable::new_secret(entropy);
@@ -36,19 +37,20 @@ pub fn one_shot(
 	let members: BoundedVec<
 		<BandersnatchVrfVerifiable as GenerateVerifiable>::Member,
 		ConstU32<{ u32::MAX }>,
-	> = Decode::decode(&mut &raw_members[..]).expect("Decoding works");
+	> = Decode::decode(&mut &raw_members[..])
+		.map_err(|_| JsString::from("Decoding Members failed"))?;
 
 	let members_encoded = members.encode();
 
 	// Open
-	let commitment =
-		BandersnatchVrfVerifiable::open(&member, members.into_iter()).expect("Error during open");
+	let commitment = BandersnatchVrfVerifiable::open(&member, members.into_iter())
+		.map_err(|_| JsString::from("Verifiable::open failed"))?;
 
 	// Create
 	let context = &context.to_vec()[..];
 	let message = &message.to_vec()[..];
 	let (proof, alias) = BandersnatchVrfVerifiable::create(commitment, &secret, context, message)
-		.expect("Error during open");
+		.map_err(|_| JsString::from("Verifiable::create failed"))?;
 
 	// Return Results
 	let obj = Object::new();
@@ -68,7 +70,7 @@ pub fn one_shot(
 	js_sys::Reflect::set(&obj, &"alias".into(), &Uint8Array::from(&alias[..])).unwrap();
 	js_sys::Reflect::set(&obj, &"message".into(), &Uint8Array::from(&message[..])).unwrap();
 	js_sys::Reflect::set(&obj, &"context".into(), &Uint8Array::from(&context[..])).unwrap();
-	obj
+	Ok(obj)
 }
 
 #[wasm_bindgen]
@@ -180,7 +182,8 @@ mod tests {
 			Uint8Array::from(members.encode().to_vec().as_slice()),
 			Uint8Array::from(context.as_slice()),
 			Uint8Array::from(message.as_slice()),
-		);
+		)
+		.expect("creating one_shot proof should work");
 
 		let alias =
 			js_sys::Reflect::get(&result, &JsValue::from_str("alias")).expect("alias should exist");
@@ -282,7 +285,8 @@ mod tests {
 			Uint8Array::from(&members.encode().to_vec()[..]),
 			Uint8Array::from(&context[..]),
 			Uint8Array::from(&message[..]),
-		);
+		)
+		.expect("creating one_shot proof should work");
 
 		// Compare js & rust values
 		let get_u8a_value = |key: &str| {
