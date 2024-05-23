@@ -1,5 +1,3 @@
-use core::mem;
-
 use crate::ring_vrf_impl::BandersnatchVrfVerifiable;
 use crate::{Entropy, GenerateVerifiable};
 use ark_scale::ArkScale;
